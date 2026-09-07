@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Drive Importer - Código de autorização</title>
+<style>
+	body {
+		font-family: -apple-system, system-ui, sans-serif;
+		max-width: 600px;
+		margin: 40px auto;
+		padding: 0 20px;
+		background: #1a1a1a;
+		color: #eee;
+	}
+	.box {
+		background: #2a2a2a;
+		border-radius: 12px;
+		padding: 20px;
+		margin-top: 20px;
+	}
+	code {
+		display: block;
+		word-break: break-all;
+		background: #111;
+		padding: 12px;
+		border-radius: 8px;
+		font-size: 14px;
+		user-select: all;
+	}
+	button {
+		margin-top: 12px;
+		padding: 10px 16px;
+		border-radius: 8px;
+		border: none;
+		background: #6c5ce7;
+		color: white;
+		font-size: 14px;
+	}
+	.error { color: #ff6b6b; }
+</style>
+</head>
+<body>
+	<h2>Drive Importer</h2>
+	<div id="result" class="box">Lendo o código...</div>
+
+	<script>
+		const params = new URLSearchParams(window.location.search);
+		const code = params.get("code");
+		const error = params.get("error");
+		const resultEl = document.getElementById("result");
+
+		if (error) {
+			resultEl.innerHTML = `<p class="error">O Google retornou um erro: ${error}</p>`;
+		} else if (code) {
+			resultEl.innerHTML = `
+				<p>Copie o código abaixo e cole nas configurações do plugin no Obsidian:</p>
+				<code id="code">${code}</code>
+				<button onclick="navigator.clipboard.writeText(document.getElementById('code').textContent)">Copiar</button>
+			`;
+		} else {
+			resultEl.innerHTML = "<p>Nenhum código encontrado na URL. Volte e tente autorizar de novo.</p>";
+		}
+	</script>
+</body>
+</html>
+
