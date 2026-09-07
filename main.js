@@ -20,6 +20,13 @@ const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const PLAIN_TEXT_MIME_TYPES = new Set(["text/markdown", "text/plain"]);
 const GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document";
 
+// Tipos que baixamos como anexo binário (sem conversão de texto).
+const BINARY_MIME_TYPES = {
+	"application/pdf": "pdf",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+	"application/msword": "doc",
+};
+
 class DriveImporterPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
@@ -145,13 +152,23 @@ class DriveImporterPlugin extends Plugin {
 		return response.json.files ?? [];
 	}
 
+	/**
+	 * Baixa um arquivo do Drive. Retorna:
+	 * - { kind: "text", data: string } para markdown/texto/Google Docs (convertidos)
+	 * - { kind: "binary", data: ArrayBuffer } para PDF/Word (anexados como estão)
+	 * - null se o tipo não é suportado
+	 */
 	async downloadFileContent(accessToken, file) {
 		let url;
+		let isBinary = false;
 
 		if (file.mimeType === GOOGLE_DOC_MIME_TYPE) {
 			url = `${DRIVE_API}/files/${file.id}/export?mimeType=text/markdown`;
 		} else if (PLAIN_TEXT_MIME_TYPES.has(file.mimeType)) {
 			url = `${DRIVE_API}/files/${file.id}?alt=media`;
+		} else if (BINARY_MIME_TYPES[file.mimeType]) {
+			url = `${DRIVE_API}/files/${file.id}?alt=media`;
+			isBinary = true;
 		} else {
 			return null;
 		}
@@ -169,12 +186,22 @@ class DriveImporterPlugin extends Plugin {
 			);
 		}
 
-		return response.text;
+		return isBinary
+			? { kind: "binary", data: response.arrayBuffer }
+			: { kind: "text", data: response.text };
 	}
 
-	sanitizeFileName(name) {
+	sanitizeFileName(name, extension) {
 		const cleaned = name.replace(/[\\/:*?"<>|]/g, "-");
-		return cleaned.toLowerCase().endsWith(".md") ? cleaned : `${cleaned}.md`;
+		const lower = cleaned.toLowerCase();
+		return lower.endsWith(`.${extension}`) ? cleaned : `${cleaned}.${extension}`;
+	}
+
+	getTargetExtension(file) {
+		if (file.mimeType === GOOGLE_DOC_MIME_TYPE || PLAIN_TEXT_MIME_TYPES.has(file.mimeType)) {
+			return "md";
+		}
+		return BINARY_MIME_TYPES[file.mimeType] ?? "md";
 	}
 
 	async importFromDrive() {
@@ -199,15 +226,16 @@ class DriveImporterPlugin extends Plugin {
 			for (const file of newFiles) {
 				notice.setMessage(`Importando "${file.name}"...`);
 
-				const content = await this.downloadFileContent(accessToken, file);
-				if (content === null) {
+				const result = await this.downloadFileContent(accessToken, file);
+				if (result === null) {
 					skippedCount++;
 					this.settings.importedFileIds.push(file.id);
 					continue;
 				}
 
 				const targetFolder = this.settings.targetFolder?.trim();
-				const fileName = this.sanitizeFileName(file.name);
+				const extension = this.getTargetExtension(file);
+				const fileName = this.sanitizeFileName(file.name, extension);
 				const path = targetFolder ? `${targetFolder}/${fileName}` : fileName;
 
 				const existing = this.app.vault.getAbstractFileByPath(path);
@@ -221,7 +249,11 @@ class DriveImporterPlugin extends Plugin {
 					await this.app.vault.createFolder(targetFolder);
 				}
 
-				await this.app.vault.create(path, content);
+				if (result.kind === "binary") {
+					await this.app.vault.createBinary(path, result.data);
+				} else {
+					await this.app.vault.create(path, result.data);
+				}
 				this.settings.importedFileIds.push(file.id);
 				importedCount++;
 			}
@@ -252,7 +284,7 @@ class DriveImporterSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Drive Importer" });
 		containerEl.createEl("p", {
-			text: "Importa arquivos criados manualmente no Google Drive (fora do Obsidian) para dentro do seu vault.",
+			text: "Importa arquivos criados manualmente no Google Drive (fora do Obsidian) para dentro do seu vault. Suporta: Markdown, texto puro, Google Docs (convertido), PDF e Word (anexados como estão).",
 		});
 
 		new Setting(containerEl)
@@ -371,4 +403,3 @@ class DriveImporterSettingTab extends PluginSettingTab {
 }
 
 module.exports = DriveImporterPlugin;
-
